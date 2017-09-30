@@ -28,6 +28,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "timers.h"
+#include "queue.h"
 
 
 /** @addtogroup STM32F4_Discovery_Peripheral_Examples
@@ -54,6 +55,15 @@ void Green_LED_On(void);
 void Green_LED_Off(void);
 void ToggleLED1_Task(void*);
 void ToggleLED2_Task(void*);
+void Sender_Task(void*);
+void Receiver_Task(void*);
+void Monitor_Task(void*);
+
+xQueueHandle MsgQueue; 
+unsigned long SendNum;
+unsigned long SendSum = 0;
+unsigned long ReceiveSum = 0;
+
 /**
   * @brief  Main program
   * @param  None
@@ -72,20 +82,28 @@ int main(void)
        /* Init and start tracing*/
         vTraceEnable(TRC_INIT);
         vTraceEnable(TRC_START);
-
+        MsgQueue=xQueueCreate(10000,sizeof(unsigned long)); /*The depth of Queue=10000*/
        /* Create tasks */
        xTaskCreate(
-		  ToggleLED1_Task,                 /* Function pointer */
-		  "Task_LED1",                          /* Task name - for debugging only*/
+		  Sender_Task,			   /* Function pointer */
+                  "Task_Sender",			/* Task name - for debugging only*/
+                  configMINIMAL_STACK_SIZE,	    /* Stack depth in words */
+                  (void*) NULL,			    /* Pointer to tasks arguments (parameter) */
+                  tskIDLE_PRIORITY+4UL,             /* Task priority zuigaoyouxianji*/
+                  NULL                              /* Task handle */
+);
+
+       xTaskCreate(
+		  Receiver_Task,                 /* Function pointer */
+		  "Task_Receiver",                          /* Task name - for debugging only*/
 		  configMINIMAL_STACK_SIZE,         /* Stack depth in words */
 		  (void*) NULL,                     /* Pointer to tasks arguments (parameter) */
 		  tskIDLE_PRIORITY + 3UL,           /* Task priority*/
 		  NULL                              /* Task handle */
        );
-
-       xTaskCreate(
-		  ToggleLED2_Task,                 /* Function pointer */
-		  "Task_LED2",                          /* Task name - for debugging only*/
+      xTaskCreate(
+		  Monitor_Task,                 /* Function pointer */
+		  "Task_Monitor",                          /* Task name - for debugging only*/
 		  configMINIMAL_STACK_SIZE,         /* Stack depth in words */
 		  (void*) NULL,                     /* Pointer to tasks arguments (parameter) */
 		  tskIDLE_PRIORITY + 2UL,           /* Task priority*/
@@ -158,62 +176,59 @@ void Green_LED_Off(void)
     GPIOG->ODR &= 0xDFFF;
 }
 /**
- * ToggleLED1_Task: Toggle LED1 via RTOS Timer
+ * Sender_Task: Send a number every 2 ms.
  */
-void ToggleLED1_Task(void *pvParameters)
+void Sender_Task(void *pvParameters)
 {
-    int led = 0;  
+    SendNum=0;
 
     while (1) 
     {
-        if(led == 0)
+        SendNum++;
+        if(SendNum > 10000)
         {
-            Red_LED_On();
-            led = 1;
-        } 
-        else
-        {
-            Red_LED_Off();
-            led = 0;
-         }
-        /*
-        Delay for a period of time. vTaskDelay() places the task into
-        the Blocked state until the period has expired.
-        The delay period is spacified in 'ticks'. We can convert
-        yhis in milisecond with the constant portTICK_RATE_MS.
-        */
-        vTaskDelay(1000 / portTICK_RATE_MS);
-  }
+            SendNum=1;
+        }
+        xQueueSend(MsgQueue,(void*)&SendNum,0);
+        SendSum = SendNum + SendSum;
+        vTaskDelay(2);
+    }
 }
 
 /**
- * ToggleLED2_Task: Toggle LED2 via RTOS Timer
+ * Receive_Task: Receive numbers every 1000 ms.
  */
-void ToggleLED2_Task(void *pvParameters)
-
+void Receiver_Task(void *pvParameters)
 {
-    int led = 0;  
-    while (1) 
+    unsigned long ReceiveNum;
+
+    while(1)
     {
-        if(led == 0)
-        {
-            Green_LED_On();
-            led = 1;
-        } 
-        else
-        {
-            Green_LED_Off();
-            led = 0;
-         }
-        /*
-        Delay for a period of time. vTaskDelay() places the task into
-        the Blocked state until the period has expired.
-        The delay period is spacified in 'ticks'. We can convert
-        yhis in milisecond with the constant portTICK_RATE_MS.
-        */
-        vTaskDelay(2000 / portTICK_RATE_MS);
-  }
+        while(xQueueReceive(MsgQueue,&ReceiveNum,0/portTICK_RATE_MS ) == pdTRUE )
+	{
+	    ReceiveSum = ReceiveNum + ReceiveSum;
+	}
+	vTaskDelay(1000);
+    }
 }
+
+/**
+ * Monitor_Task: 
+ */
+void Monitor_Task(void *pvParameters)
+{
+    while(1)
+    {
+	if(ReceiveSum==SendSum)
+          { Green_LED_On();
+            Red_LED_Off();}
+        else
+          {Green_LED_Off();
+           Red_LED_On();}
+        vTaskDelay(1000);
+     }
+}
+
 
 void vApplicationTickHook( void )
 {
